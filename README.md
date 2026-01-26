@@ -1,6 +1,6 @@
 # Quantum Circuit Optimization Across Quantum Hardware
 
-# 🧑‍🔬 Research Team GitHub Guide - Reccomendations
+# 🧑‍🔬 Research Team GitHub Guide - Recommendations
 
 Welcome to your research repository! This guide will help you work together using Git and GitHub — no prior experience needed. Feel free to modify this, it's only for your introduction to your team's repo.
 
