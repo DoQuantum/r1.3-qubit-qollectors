@@ -11,7 +11,10 @@ from qubit_to_ququart_mapper import (
     QuQuartCircuit,
     best_mapping_optimization,
     get_ququart_index,
-    qubit_to_ququart_circuit
+    qubit_to_ququart_circuit,
+    identify_gate,
+    display_ququart_circuit,
+    SWAP_2Q,
 )
 
 
@@ -255,6 +258,122 @@ def test_no_two_qubit_gates():
     print("  ✓ Circuits with only single-qubit gates handled correctly")
 
 
+def test_within_ququart_reversed_ordering():
+    """Test CNOT with reversed qubit ordering within same ququart"""
+    print("\nTest 11: Within-ququart reversed qubit ordering...")
+
+    circuit = QubitCircuit(num_qubits=4)
+    CNOT = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+        [0, 0, 1, 0]
+    ])
+
+    # CNOT[1, 0]: qubit 1 is control (pos=1), qubit 0 is target (pos=0)
+    # With mapping [(0,1), (2,3)], needs SWAP reordering
+    circuit.add_layer([(CNOT, [1, 0])])
+
+    mapping = [(0, 1), (2, 3)]
+    ququart = qubit_to_ququart_circuit(circuit, mapping=mapping)
+
+    assert ququart.cross_ququart_gate_count == 0
+
+    # The gate should be SWAP @ CNOT @ SWAP (reversed CNOT)
+    gate_matrix = ququart.layers[0][0][0]
+    expected = SWAP_2Q @ CNOT @ SWAP_2Q
+    assert np.allclose(gate_matrix, expected), \
+        f"Reversed CNOT matrix mismatch:\n{gate_matrix}\nvs expected:\n{expected}"
+
+    print("  ✓ Reversed qubit ordering handled correctly")
+
+
+def test_cross_ququart_embedding_dimensions():
+    """Test that cross-ququart gates produce 16x16 unitary matrices"""
+    print("\nTest 12: Cross-ququart gate embedding dimensions...")
+
+    circuit = QubitCircuit(num_qubits=4)
+    CNOT = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+        [0, 0, 1, 0]
+    ])
+
+    circuit.add_layer([(CNOT, [0, 2])])  # Cross-ququart
+
+    mapping = [(0, 1), (2, 3)]
+    ququart = qubit_to_ququart_circuit(circuit, mapping=mapping)
+
+    gate_matrix = ququart.layers[0][0][0]
+    assert gate_matrix.shape == (16, 16), \
+        f"Expected 16x16, got {gate_matrix.shape}"
+
+    # Verify unitarity
+    product = gate_matrix @ gate_matrix.conj().T
+    assert np.allclose(product, np.eye(16)), "Embedded gate is not unitary"
+
+    print("  ✓ Cross-ququart embedding produces correct 16x16 unitary")
+
+
+def test_cross_ququart_all_position_variants():
+    """Test cross-ququart embedding for all 4 position combinations"""
+    print("\nTest 13: Cross-ququart all position variants...")
+
+    CNOT = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+        [0, 0, 1, 0]
+    ])
+
+    mapping = [(0, 1), (2, 3)]
+    # (pos1, pos2) variants: (0,0), (0,1), (1,0), (1,1)
+    cross_pairs = [
+        ([0, 2], "pos(0,0)"),  # q0=pos0 in QQ0, q2=pos0 in QQ1
+        ([0, 3], "pos(0,1)"),  # q0=pos0 in QQ0, q3=pos1 in QQ1
+        ([1, 2], "pos(1,0)"),  # q1=pos1 in QQ0, q2=pos0 in QQ1
+        ([1, 3], "pos(1,1)"),  # q1=pos1 in QQ0, q3=pos1 in QQ1
+    ]
+
+    for qubit_indices, label in cross_pairs:
+        circuit = QubitCircuit(num_qubits=4)
+        circuit.add_layer([(CNOT, qubit_indices)])
+        ququart = qubit_to_ququart_circuit(circuit, mapping=mapping)
+
+        gate_matrix = ququart.layers[0][0][0]
+        assert gate_matrix.shape == (16, 16), \
+            f"{label}: Expected 16x16, got {gate_matrix.shape}"
+
+        product = gate_matrix @ gate_matrix.conj().T
+        assert np.allclose(product, np.eye(16)), \
+            f"{label}: Embedded gate is not unitary"
+
+    print("  ✓ All 4 cross-ququart position variants produce valid unitaries")
+
+
+def test_identify_gate():
+    """Test gate identification from known gate dictionary"""
+    print("\nTest 14: Gate identification...")
+
+    H = (1 / np.sqrt(2)) * np.array([[1, 1], [1, -1]], dtype=complex)
+    CNOT = np.array([
+        [1, 0, 0, 0], [0, 1, 0, 0],
+        [0, 0, 0, 1], [0, 0, 1, 0]
+    ], dtype=complex)
+
+    assert identify_gate(H) == "H"
+    assert identify_gate(CNOT) == "CNOT"
+    assert identify_gate(np.eye(2, dtype=complex)) == "I"
+
+    # Unknown gate should return U(NxN)
+    random_gate = np.array([[0.5, 0.5], [0.5, -0.5]], dtype=complex)
+    result = identify_gate(random_gate)
+    assert result.startswith("U("), f"Expected U(NxN), got {result}"
+
+    print("  ✓ Gate identification works correctly")
+
+
 def run_all_tests():
     """Run all tests"""
     print("="*70)
@@ -271,7 +390,11 @@ def run_all_tests():
         test_cross_ququart_cnot,
         test_mixed_layer,
         test_optimization_benefit,
-        test_no_two_qubit_gates
+        test_no_two_qubit_gates,
+        test_within_ququart_reversed_ordering,
+        test_cross_ququart_embedding_dimensions,
+        test_cross_ququart_all_position_variants,
+        test_identify_gate,
     ]
 
     passed = 0

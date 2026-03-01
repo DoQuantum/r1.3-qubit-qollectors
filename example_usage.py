@@ -10,7 +10,8 @@ from qubit_to_ququart_mapper import (
     QubitCircuit,
     best_mapping_optimization,
     qubit_to_ququart_circuit,
-    create_example_circuit
+    create_example_circuit,
+    display_ququart_circuit,
 )
 
 
@@ -42,9 +43,33 @@ def example_1_basic_usage():
     # Convert (mapping will be automatically optimized)
     ququart_circuit = qubit_to_ququart_circuit(circuit)
 
+    # Display detailed gate-by-gate results
+    display_ququart_circuit(ququart_circuit)
+
     print(f"\nResult: {ququart_circuit}")
     print(f"Expected mapping: [(0,1), (2,3)] due to high interaction within pairs")
 
+def example_X_basic_usage():
+    """Example 1: Basic usage with automatic mapping optimization"""
+    print("\n" + "="*70)
+    print("EXAMPLE 1: Basic Usage with Automatic Mapping Optimization")
+    print("="*70)
+
+    # Create a simple circuit
+    circuit = QubitCircuit(num_qubits=4) 
+
+    H = 1/np.sqrt(2) * np.array([[1, 1], [1, -1]], dtype=complex)
+    CNOT = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+        [0, 0, 1, 0]
+    ])
+
+    circuit.add_layer([(H, [0])])
+    circuit.add_layer([(CNOT, [0, 2])])
+    circuit.add_layer([(CNOT, [1, 3])])
+    circuit.add_layer([(CNOT, [1, 2])])
 
 def example_2_manual_mapping():
     """Example 2: Using a manually specified mapping"""
