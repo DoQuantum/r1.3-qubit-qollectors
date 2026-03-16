@@ -1,10 +1,10 @@
 """
 Qubit-to-QuQuart Circuit Mapper
 
-This module converts qubit circuits (2-level systems) into qu-quart circuits
+This program converts qubit circuits (2-level systems) into qu-quart circuits
 (4-level systems) while minimizing cross-qu-quart gate operations using QuTiP.
 
-Author: Quantum Research Team
+Author: Qubit Qollectors
 Date: 2026-01-22
 """
 
@@ -21,24 +21,42 @@ SWAP_2Q = np.array([
     [0, 0, 1, 0],
     [0, 1, 0, 0],
     [0, 0, 0, 1]
-], dtype=complex)
+], dtype = complex)
 
 KNOWN_GATES = {
-    "I": np.eye(2, dtype=complex),
-    "X": np.array([[0, 1], [1, 0]], dtype=complex),
-    "Y": np.array([[0, -1j], [1j, 0]], dtype=complex),
-    "Z": np.array([[1, 0], [0, -1]], dtype=complex),
-    "H": (1 / np.sqrt(2)) * np.array([[1, 1], [1, -1]], dtype=complex),
-    "S": np.array([[1, 0], [0, 1j]], dtype=complex),
-    "T": np.array([[1, 0], [0, np.exp(1j * np.pi / 4)]], dtype=complex),
+    "I": np.eye(2, dtype = complex),
+    "X": np.array([[0, 1], [1, 0]], dtype = complex),
+    "Y": np.array([[0, -1j], [1j, 0]], dtype = complex),
+    "Z": np.array([[1, 0], [0, -1]], dtype = complex),
+    "H": (1 / np.sqrt(2)) * np.array([[1, 1], [1, -1]], dtype = complex),
+    "S": np.array([[1, 0], [0, 1j]], dtype = complex),
+    "T": np.array([[1, 0], [0, np.exp(1j * np.pi / 4)]], dtype = complex),
     "CNOT": np.array([
         [1, 0, 0, 0], 
         [0, 1, 0, 0],
         [0, 0, 0, 1], 
         [0, 0, 1, 0]
-    ], dtype=complex),
+    ], dtype = complex),
     "CZ": np.diag([1, 1, 1, -1]).astype(complex),
-    "SWAP": SWAP_2Q.copy(),
+     "CH": np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1/np.sqrt(2), 1/np.sqrt(2)],
+        [0, 0, 1/np.sqrt(2), -1/np.sqrt(2)]
+    ], dtype=complex),
+    "CY": np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, -1j],
+        [0, 0, 1j, 0]
+    ], dtype = complex),
+    "ISWAP": np.array([
+        [1, 0, 0, 0],
+        [0, 0, 1j, 0],
+        [0, 1j, 0, 0],
+        [0, 0, 0, 1]
+    ], dtype=complex),
+    "SWAP": SWAP_2Q.copy()
 }
 
 
@@ -599,7 +617,7 @@ def create_example_circuit() -> QubitCircuit:
         (KNOWN_GATES["CNOT"], [1, 2])
     ])
 
-    # Layer 3: Single cross-pair interaction
+    # Layer 2: Single cross-pair interaction
     circuit.add_layer([
         (KNOWN_GATES["CNOT"], [2, 3])
     ])
