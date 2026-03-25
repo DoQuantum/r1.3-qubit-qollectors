@@ -169,7 +169,7 @@ def parse_qasm(qasm_str: str) -> nx.Graph:
     Parse an OpenQASM 2.0 string into a weighted interaction graph.
 
     Most quantum frameworks can export to QASM 2.0:
-      - Qiskit:    circuit.qasm()
+      - Qiskit:    qiskit.qasm2.dumps(circuit)
       - Cirq:      cirq.qasm(circuit)
       - PyQuil:    program.out() (converts to Quil, then QASM via transpile)
 
@@ -190,7 +190,8 @@ def parse_qasm(qasm_str: str) -> nx.Graph:
             "Qiskit is required to parse QASM: pip install qiskit"
         ) from exc
 
-    circuit = QuantumCircuit.from_qasm_str(qasm_str)
+    import qiskit.qasm2 as qasm2
+    circuit = qasm2.loads(qasm_str, custom_instructions=qasm2.LEGACY_CUSTOM_INSTRUCTIONS)
     return parse_qiskit(circuit)
 
 
