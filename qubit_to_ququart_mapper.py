@@ -38,7 +38,7 @@ KNOWN_GATES = {
         [0, 0, 1, 0]
     ], dtype = complex),
     "CZ": np.diag([1, 1, 1, -1]).astype(complex),
-     "CH": np.array([
+    "CH": np.array([
         [1, 0, 0, 0],
         [0, 1, 0, 0],
         [0, 0, 1/np.sqrt(2), 1/np.sqrt(2)],

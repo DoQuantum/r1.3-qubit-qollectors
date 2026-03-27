@@ -1,0 +1,11 @@
+# Claude Code local config
+.claude/
+
+# Virtual environment
+qudit/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
