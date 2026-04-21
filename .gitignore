@@ -1,3 +1,6 @@
+# Claude Code local config
+.claude/
+
 # Virtual environment
 qudit/
 
@@ -5,4 +8,32 @@ qudit/
 __pycache__/
 *.py[cod]
 *.pyo
+
+# Jupyter
 .ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and local output files
+*.log
+*.out

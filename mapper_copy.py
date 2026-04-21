@@ -8,7 +8,6 @@ Author: Qubit Qollectors
 Date: 2026-01-22
 """
 
-import random
 import numpy as np
 import qutip as qt
 from typing import List, Tuple, Dict
@@ -172,294 +171,25 @@ def _all_perfect_matchings(nodes: list):
             yield [(first, second)] + sub
 
 
-
-# --- KL / FM matching helpers ---
-#
-# Both strategies operate on a *perfect matching* of qubits into ququart pairs.
-# The fundamental move is a cross-pair swap: given pairs (a, pₐ) and (b, p_b),
-# swapping a↔b yields (a, p_b) and (b, pₐ). This keeps the matching valid.
-# The swap gain measures the change in internal (same-ququart) interactions:
-#
-#   gain = w(a, p_b) + w(b, pₐ) − w(a, pₐ) − w(b, p_b)
-#
-# where w(i, j) is the number of 2-qubit gates between qubits i and j.
-# A positive gain means the swap reduces cross-ququart gate count.
-
-def _w(a: int, b: int, ic: dict) -> int:
-    """Interaction count between qubits a and b."""
-    return ic.get((min(a, b), max(a, b)), 0)
-
-
-def _matching_to_partner(matching: list) -> dict:
-    partner = {}
-    for q1, q2 in matching:
-        partner[q1] = q2
-        partner[q2] = q1
-    return partner
-
-
-def _partner_to_matching(partner: dict) -> list:
-    seen = set()
+def _greedy_matching(nodes: list, interaction_counts: dict) -> list:
+    """
+    Greedy maximum-weight perfect matching.
+    Iteratively picks the highest-interaction unmatched pair, then pairs
+    any remaining unmatched nodes arbitrarily.
+    """
+    sorted_pairs = sorted(interaction_counts.keys(), key=lambda p: -interaction_counts[p])
+    unmatched = set(nodes)
     matching = []
-    for q in sorted(partner):
-        if q not in seen:
-            p = partner[q]
-            matching.append((q, p))
-            seen.add(q)
-            seen.add(p)
+    for (i, j) in sorted_pairs:
+        if i in unmatched and j in unmatched:
+            matching.append((i, j))
+            unmatched.discard(i)
+            unmatched.discard(j)
+    unmatched_list = sorted(unmatched)
+    while len(unmatched_list) >= 2:
+        matching.append((unmatched_list[0], unmatched_list[1]))
+        unmatched_list = unmatched_list[2:]
     return matching
-
-
-def _matching_cross_cost(partner: dict, ic: dict) -> int:
-    """Number of cross-ququart interactions for a given partner dict."""
-    internal = sum(_w(q1, q2, ic) for q1, q2 in _partner_to_matching(partner))
-    return sum(ic.values()) - internal
-
-
-def _swap_gain(a: int, b: int, partner: dict, ic: dict) -> int:
-    """
-    Gain in internal interactions from swapping a and b between their pairs.
-    (a, partner[a]) and (b, partner[b]) become (a, partner[b]) and (b, partner[a]).
-    """
-    pa, pb = partner[a], partner[b]
-    return (_w(a, pb, ic) + _w(b, pa, ic)) - (_w(a, pa, ic) + _w(b, pb, ic))
-
-
-def _apply_swap(a: int, b: int, partner: dict) -> None:
-    """Apply a cross-pair swap of a and b in-place on the partner dict."""
-    pa, pb = partner[a], partner[b]
-    partner[a] = pb
-    partner[pb] = a
-    partner[b] = pa
-    partner[pa] = b
-
-
-# --- Kernighan-Lin (KL) ---
-#
-# Strategy: Kernighan-Lin bisection adapted for perfect matchings.
-#
-# Original KL (Kernighan & Lin, 1970) was designed for graph bipartitioning.
-# Here it is adapted to the matching problem: instead of moving nodes between
-# two sets, each "move" is a cross-pair swap of two qubits from different pairs.
-#
-# One KL pass:
-#   1. All qubits start unlocked.
-#   2. Greedily pick the unlocked cross-pair swap (a, b) with the highest gain,
-#      even if the gain is negative — this lets KL escape shallow local optima.
-#   3. Apply the swap and lock both a and b (they cannot be chosen again this pass).
-#      Their former partners (pₐ, p_b) remain unlocked and can be swapped later.
-#   4. Record the cumulative gain after each move.
-#   5. After all moves, roll back to the prefix with the highest cumulative gain.
-#      If no prefix improves on the starting state, discard all moves.
-#
-# Multi-pass: repeat until a pass produces no improvement.
-# Multi-restart: run from many random initial matchings; keep the best.
-
-def _kl_matching_pass(partner: dict, ic: dict, effective_n: int) -> Tuple[dict, int]:
-    """
-    One KL-style pass over a matching.
-
-    At each step picks the unlocked cross-pair swap with the highest gain,
-    locks the two chosen qubits, and records the cumulative gain.
-    After exhausting all moves, rolls back to the best-gain prefix.
-
-    Returns (new_partner, best_cumulative_gain). If no improvement, returns
-    the original partner dict with gain 0.
-    """
-    unlocked = list(range(effective_n))
-    current = dict(partner)
-    move_seq = []       # (snapshot, cumulative_gain)
-    cumulative_gain = 0
-
-    while len(unlocked) >= 2:
-        best_gain = -float('inf')
-        best_a = best_b = None
-
-        # Evaluate all unlocked cross-pair swap candidates
-        for i, a in enumerate(unlocked):
-            for b in unlocked[i + 1:]:
-                if current[a] == b:     # same pair — skip
-                    continue
-                g = _swap_gain(a, b, current, ic)
-                if g > best_gain:
-                    best_gain = g
-                    best_a, best_b = a, b
-
-        if best_a is None:
-            # All remaining unlocked qubits are already paired with each other
-            break
-
-        _apply_swap(best_a, best_b, current)
-        # Lock the two swapped qubits; their new partners remain available
-        unlocked.remove(best_a)
-        unlocked.remove(best_b)
-
-        cumulative_gain += best_gain
-        move_seq.append((dict(current), cumulative_gain))
-
-    if not move_seq:
-        return partner, 0
-
-    # Roll back to the best-gain prefix (KL's key insight: temporary worsening
-    # moves can unlock globally better configurations)
-    best_idx = max(range(len(move_seq)), key=lambda i: move_seq[i][1])
-    best_partner, best_gain = move_seq[best_idx]
-
-    if best_gain <= 0:
-        return partner, 0
-    return best_partner, best_gain
-
-
-# --- Fiduccia-Mattheyses (FM) ---
-#
-# Strategy: FM-style gain-based refinement adapted for perfect matchings.
-#
-# FM (Fiduccia & Mattheyses, 1982) improves on KL by using a priority queue
-# ordered by gain, avoiding redundant recomputation. Our adaptation applies the
-# same idea to the matching problem using the same cross-pair swap move.
-#
-# Key difference from KL: FM commits to the prefix with the lowest *actual cost*
-# (not cumulative gain). Measuring exact cost at each step makes FM more robust
-# to gain estimation errors caused by interactions among successive swaps.
-#
-# One FM pass:
-#   1. All qubits start unlocked.
-#   2. Greedily pick the unlocked cross-pair swap with the highest gain.
-#   3. Apply it, lock the two qubits, recompute the true cross-ququart cost.
-#   4. Repeat until no valid swap remains.
-#   5. Commit to the lowest-cost state seen during the pass.
-#      If no state is cheaper than the pass's starting point, stop.
-
-def _fm_matching_refine(partner: dict, ic: dict, effective_n: int,
-                        max_passes: int = 10) -> dict:
-    """
-    FM-style gain-based refinement of a matching.
-
-    Each pass locks qubit pairs in order of best swap gain (highest first),
-    records the actual cross cost at each step, then commits to the
-    lowest-cost prefix found. Repeats until no improvement across a full pass.
-    """
-    current = dict(partner)
-    best_cost = _matching_cross_cost(current, ic)
-
-    for _ in range(max_passes):
-        unlocked = list(range(effective_n))
-        pass_current = dict(current)
-        move_seq = []   # (snapshot, cost)
-
-        while len(unlocked) >= 2:
-            best_gain = -float('inf')
-            best_a = best_b = None
-
-            # Evaluate all unlocked cross-pair swap candidates
-            for i, a in enumerate(unlocked):
-                for b in unlocked[i + 1:]:
-                    if pass_current[a] == b:
-                        continue
-                    g = _swap_gain(a, b, pass_current, ic)
-                    if g > best_gain:
-                        best_gain = g
-                        best_a, best_b = a, b
-
-            if best_a is None:
-                break
-
-            _apply_swap(best_a, best_b, pass_current)
-            unlocked.remove(best_a)
-            unlocked.remove(best_b)
-
-            # FM tracks true cost at each step, not cumulative gain
-            cost = _matching_cross_cost(pass_current, ic)
-            move_seq.append((dict(pass_current), cost))
-
-        if not move_seq:
-            break
-
-        # Commit to the lowest-cost state seen during this pass
-        min_idx = min(range(len(move_seq)), key=lambda i: move_seq[i][1])
-        best_pass_partner, best_pass_cost = move_seq[min_idx]
-
-        if best_pass_cost < best_cost:
-            best_cost = best_pass_cost
-            current = best_pass_partner
-        else:
-            # No improvement this pass — FM has converged
-            break
-
-    return current
-
-
-def _multi_restart_kl(effective_n: int, ic: dict,
-                      restarts: int = 20) -> Tuple[list, int]:
-    """
-    Multi-restart Kernighan-Lin matching optimizer.
-
-    Samples random initial perfect matchings, refines each with repeated KL
-    passes until no gain remains, and returns the best result found.
-    O(restarts * passes * n^3) where passes converges quickly in practice.
-    """
-    nodes = list(range(effective_n))
-    best_matching: list = None
-    best_cost = float('inf')
-    rng = random.Random()
-
-    for _ in range(restarts):
-        # Random initial matching: shuffle nodes and zip consecutive pairs
-        shuffled = nodes[:]
-        rng.shuffle(shuffled)
-        partner: dict = {}
-        for i in range(0, effective_n, 2):
-            a, b = shuffled[i], shuffled[i + 1]
-            partner[a] = b
-            partner[b] = a
-
-        # Run KL passes until a full pass produces no improvement
-        while True:
-            new_partner, gain = _kl_matching_pass(partner, ic, effective_n)
-            if gain <= 0:
-                break
-            partner = new_partner
-
-        cost = _matching_cross_cost(partner, ic)
-        if cost < best_cost:
-            best_cost = cost
-            best_matching = _partner_to_matching(partner)
-
-    return best_matching, best_cost
-
-
-def _multi_restart_fm(effective_n: int, ic: dict,
-                      restarts: int = 20, max_passes: int = 10) -> Tuple[list, int]:
-    """
-    Multi-restart FM-style gain-based matching optimizer.
-
-    Samples random initial perfect matchings, refines each with FM passes,
-    and returns the best result found.
-    O(restarts * passes * n^3) per call.
-    """
-    nodes = list(range(effective_n))
-    best_matching: list = None
-    best_cost = float('inf')
-    rng = random.Random()
-
-    for _ in range(restarts):
-        # Random initial matching: shuffle nodes and zip consecutive pairs
-        shuffled = nodes[:]
-        rng.shuffle(shuffled)
-        partner: dict = {}
-        for i in range(0, effective_n, 2):
-            a, b = shuffled[i], shuffled[i + 1]
-            partner[a] = b
-            partner[b] = a
-
-        partner = _fm_matching_refine(partner, ic, effective_n, max_passes)
-        cost = _matching_cross_cost(partner, ic)
-
-        if cost < best_cost:
-            best_cost = cost
-            best_matching = _partner_to_matching(partner)
-
-    return best_matching, best_cost
 
 
 def best_mapping_optimization(qubit_circuit: QubitCircuit) -> List[Tuple[int, int]]:
@@ -488,9 +218,8 @@ def best_mapping_optimization(qubit_circuit: QubitCircuit) -> List[Tuple[int, in
     ----------
     1. If odd qubit count, add a virtual ancilla qubit with no interactions.
     2. Build weighted interaction graph (edge weight = 2-qubit gate count).
-    3. For n <= 12 qubits: enumerate all (n-1)!! perfect matchings exactly.
-       For n > 12: run both multi-restart KL and multi-restart FM (20 random
-       starts each) and keep whichever produces fewer cross-ququart gates.
+    3. For n <= 12 qubits: enumerate all perfect matchings and pick the minimum
+       cross-pair cost. For n > 12: use greedy maximum-weight matching.
     """
     num_qubits = qubit_circuit.num_qubits
     has_ancilla = (num_qubits % 2 == 1)
@@ -511,8 +240,8 @@ def best_mapping_optimization(qubit_circuit: QubitCircuit) -> List[Tuple[int, in
 
     nodes = list(range(effective_n))
 
-    # Exact enumeration for small n; KL+FM heuristics for larger n.
-    # (n-1)!! perfect matchings: n=12 → 10395, n=14 → 135135 (too many to enumerate)
+    # Enumerate all perfect matchings for small n; greedy for larger n.
+    # (n-1)!! matchings: n=12 → 10395, n=14 → 135135
     _ENUM_THRESHOLD = 12
 
     if effective_n <= _ENUM_THRESHOLD:
@@ -530,25 +259,23 @@ def best_mapping_optimization(qubit_circuit: QubitCircuit) -> List[Tuple[int, in
             if cross < min_cross:
                 min_cross = cross
                 best_pairing = matching
-        algo_used = "exact enumeration"
     else:
-        kl_pairing, kl_cross = _multi_restart_kl(effective_n, interaction_counts)
-        fm_pairing, fm_cross = _multi_restart_fm(effective_n, interaction_counts)
-        if kl_cross <= fm_cross:
-            best_pairing = kl_pairing
-            min_cross = kl_cross
-            algo_used = "multi-restart KL"
-        else:
-            best_pairing = fm_pairing
-            min_cross = fm_cross
-            algo_used = "multi-restart FM"
+        best_pairing = _greedy_matching(nodes, interaction_counts)
+        pair_map = {}
+        for qq_idx, (a, b) in enumerate(best_pairing):
+            pair_map[a] = qq_idx
+            pair_map[b] = qq_idx
+        min_cross = sum(
+            cnt for (q1, q2), cnt in interaction_counts.items()
+            if pair_map[q1] != pair_map[q2]
+        )
 
     nonzero_interactions = {k: v for k, v in interaction_counts.items() if v > 0}
 
     if has_ancilla:
-        print(f"BMO Analysis [{algo_used}] (odd qubit count — ancilla qubit {num_qubits} added):")
+        print(f"BMO Analysis (odd qubit count — ancilla qubit {num_qubits} added):")
     else:
-        print(f"BMO Analysis [{algo_used}]:")
+        print(f"BMO Analysis:")
     print(f"  Interaction counts: {nonzero_interactions}\n")
     print(f"  Most optimal pairing: {best_pairing}")
     print(f"  Cross-qu-quart gates: {min_cross}")
