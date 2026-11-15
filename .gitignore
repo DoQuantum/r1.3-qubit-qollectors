@@ -3,6 +3,7 @@
 
 # Virtual environment
 qudit/
+.venv/
 
 # Python
 __pycache__/
